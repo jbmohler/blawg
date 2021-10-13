@@ -10,12 +10,12 @@ import jinja2
 
 app = sanic.Sanic("blawg like a pro")
 
-GITHUB_USER = "jbmohler"
-GITHUB_BLOG_REPO = "testblog"
+GITHUB_USER = os.getenv("GITHUB_USER")
+GITHUB_BLOG_REPO = os.getenv("GITHUB_BLOG_REPO")
+
+GITHUB_BLOG_DIR = os.getenv("GITHUB_BLOG_DIR")
 
 GITHUB_STATIC_DIR = "/static"
-GITHUB_BLOG_DIR = "fred"
-
 
 STATIC_TOPMATTER = "topmatter"
 STATIC_HEADER = "header"
@@ -74,12 +74,15 @@ async def get_github_rawpage(request, blogpath):
 
 MJ_SCRIPT = """ <script type="text/javascript" id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"> </script>"""
 
+# Markdown metadata
+# https://stackoverflow.com/questions/44215896/markdown-metadata-format
 
-@app.get("/page/<blogpath:path>")
-async def get_github_page(request, blogpath):
+
+@app.get("/page/<blogentry:path>")
+async def get_github_blog_page(request, blogentry):
     repo = get_repo()
 
-    cfile = repo.get_contents(blogpath)
+    cfile = repo.get_contents(f"{GITHUB_BLOG_DIR}/{blogentry}")
     raw = base64.b64decode(cfile.content)
 
     with tempfile.TemporaryDirectory() as tempdir:
