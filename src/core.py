@@ -3,6 +3,7 @@ import tempfile
 import functools
 import subprocess
 import asyncio
+import concurrent.futures
 import base64
 import sanic
 import github
@@ -35,7 +36,6 @@ def get_static_file(static):
 
     try:
         cfile = repo.get_contents(f"{GITHUB_STATIC_DIR}/{static}")
-        print(cfile)
 
         raw = base64.b64decode(cfile.content)
         return raw.decode("utf8")
@@ -63,6 +63,42 @@ async def get_github_dir(request, dirpath):
     return sanic.text(str([repr(c) for c in cfile]))
 
 
+@app.get("/index")
+async def get_github_index(request):
+    repo = get_repo()
+
+    cfile = repo.get_contents(f"{GITHUB_BLOG_DIR}")
+
+    def repr(c):
+        hyper = c.path.replace(GITHUB_BLOG_DIR, "").strip("/")
+        base = ""  # TODO: get this from the request header vars
+        return f"<a href='{base}/page/{hyper}'>{c.name}</a><br />"
+
+    output = "\n".join([repr(c) for c in cfile])
+
+    topmatter = get_static_file(STATIC_TOPMATTER)
+    header = get_static_file(STATIC_HEADER)
+    footer = get_static_file(STATIC_FOOTER)
+    bottommatter = get_static_file(STATIC_BOTTOMMATTER)
+
+    j = jinja2.Environment()
+    t = j.from_string(header)
+    header = t.render(repo=repo)
+
+    j = jinja2.Environment()
+    t = j.from_string(footer)
+    footer = t.render(repo=repo)
+
+    html = f"""
+{topmatter}
+{header}
+{output}
+{footer}
+{bottommatter}"""
+
+    return sanic.html(html)
+
+
 @app.get("/rawpage/<blogpath:path>")
 async def get_github_rawpage(request, blogpath):
     repo = get_repo()
@@ -85,15 +121,18 @@ async def get_github_blog_page(request, blogentry):
     cfile = repo.get_contents(f"{GITHUB_BLOG_DIR}/{blogentry}")
     raw = base64.b64decode(cfile.content)
 
-    with tempfile.TemporaryDirectory() as tempdir:
+    loop = asyncio.get_running_loop()
 
+    with tempfile.TemporaryDirectory() as tempdir:
         iname = os.path.join(tempdir, "temp.md")
         oname = os.path.join(tempdir, "temp.html")
 
         with open(iname, "w") as ff:
             ff.write(raw.decode("utf8"))
 
-        subprocess.run(["pandoc", "--mathjax", iname, "-o", oname])
+        await loop.run_in_executor(
+            None, subprocess.run, ["pandoc", "--mathjax", iname, "-o", oname]
+        )
         # os.system("pandoc --standalone --mathjax -f markdown -t html temp.md -o temp.html")
 
         with open(oname, "r") as ff:
@@ -122,4 +161,10 @@ async def get_github_blog_page(request, blogentry):
     return sanic.html(html)
 
 
-app.run(host="0.0.0.0", port=1337, access_log=False, debug=True, auto_reload=True)
+@app.listener("before_server_start")
+async def setup_executor(app, loop):
+    loop.set_default_executor(concurrent.futures.ThreadPoolExecutor())
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=1337, access_log=False, debug=True, auto_reload=True)
