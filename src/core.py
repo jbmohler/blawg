@@ -45,10 +45,49 @@ def get_static_file(static):
         return ""
 
 
-@app.get("/async")
-async def async_handler(request):
+def get_public_basepath(request):
+    if "x-original-uri" in request.headers:
+        mypath = request.path.lstrip("/")
+        public = request.headers["x-original-uri"]
+        if len(mypath) and public.endswith(mypath):
+            public = public[: -len(mypath)]
+        assert public.endswith("/")
+        return public
+    else:
+        return "/"
+
+
+@app.get("/pathdest")
+async def pathdest(request):
     await asyncio.sleep(0.1)
     return sanic.text("Done.")
+
+
+@app.get("/")
+async def slashpathtest(request):
+    kvs = [f"{k}={v}" for k, v in request.headers.items()]
+    kvs.append("")
+    kvs.append(f"path={request.path}")
+    kvs.append(f"public={get_public_basepath(request)}")
+    kvs.append("")
+    headers = "<br />".join(kvs)
+
+    headers += (
+        f"<br />path={request.path}<br />public={get_public_basepath(request)}<br />"
+    )
+
+    dest = f"{get_public_basepath(request)}pathdest"
+
+    return sanic.html(
+        f"""
+<html>
+<body>
+{headers}
+<a href="{dest}">pathdest</a>
+</body>
+</html>
+"""
+    )
 
 
 @app.get("/dir/<dirpath:path>")
@@ -71,8 +110,8 @@ async def get_github_index(request):
 
     def repr(c):
         hyper = c.path.replace(GITHUB_BLOG_DIR, "").strip("/")
-        base = ""  # TODO: get this from the request header vars
-        return f"<a href='{base}/page/{hyper}'>{c.name}</a><br />"
+        base = get_public_basepath(request)
+        return f"<a href='{base}page/{hyper}'>{c.name}</a><br />"
 
     output = "\n".join([repr(c) for c in cfile])
 
