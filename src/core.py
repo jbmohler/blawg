@@ -5,6 +5,7 @@ import subprocess
 import asyncio
 import concurrent.futures
 import base64
+import yaml
 import sanic
 import github
 import jinja2
@@ -153,6 +154,19 @@ MJ_SCRIPT = """ <script type="text/javascript" id="MathJax-script" async src="ht
 # https://stackoverflow.com/questions/44215896/markdown-metadata-format
 
 
+class PageMeta:
+    def __init__(self, metaseg, contentfile):
+        if metaseg:
+            self._meta = yaml.safe_load(metaseg)
+        else:
+            self._meta = {}
+        self._cfile = contentfile
+
+    @property
+    def title(self):
+        return self._meta.get("title", self._cfile.name)
+
+
 @app.get("/page/<blogentry:path>")
 async def get_github_blog_page(request, blogentry):
     repo = get_repo()
@@ -166,8 +180,19 @@ async def get_github_blog_page(request, blogentry):
         iname = os.path.join(tempdir, "temp.md")
         oname = os.path.join(tempdir, "temp.html")
 
+        content = raw.decode("utf8")
+        metaseg = None
+        if content.startswith("---"):
+            splits = content.split("---", 2)
+            if len(splits) < 3:
+                metaseg, content = None, content
+            else:
+                _, metaseg, content = splits
+
+        meta = PageMeta(metaseg, cfile)
+
         with open(iname, "w") as ff:
-            ff.write(raw.decode("utf8"))
+            ff.write(content)
 
         await loop.run_in_executor(
             None, subprocess.run, ["pandoc", "--mathjax", iname, "-o", oname]
@@ -183,12 +208,16 @@ async def get_github_blog_page(request, blogentry):
         bottommatter = get_static_file(STATIC_BOTTOMMATTER)
 
         j = jinja2.Environment()
+        t = j.from_string(topmatter)
+        topmatter = t.render(repo=repo, meta=meta)
+
+        j = jinja2.Environment()
         t = j.from_string(header)
-        header = t.render(repo=repo)
+        header = t.render(repo=repo, meta=meta)
 
         j = jinja2.Environment()
         t = j.from_string(footer)
-        footer = t.render(repo=repo)
+        footer = t.render(repo=repo, meta=meta)
 
         html = f"""
 {topmatter}
