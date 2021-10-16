@@ -103,6 +103,30 @@ async def get_github_dir(request, dirpath):
     return sanic.text(str([repr(c) for c in cfile]))
 
 
+@app.get("/commits")
+async def get_github_commits(request):
+    repo = get_repo()
+
+    commits = repo.get_commits()
+
+    def repr(c):
+        lines = [f"{c.author} {c.commit.author.date} {c.sha} {c.commit.message}\n"]
+        for f in c.files:
+            lines.append(f"\t{f.filename} +{f.additions} -{f.deletions}\n")
+        return "".join(lines)
+
+    return sanic.text("".join([repr(c) for c in commits]))
+
+
+class IndexMeta:
+    def __init__(self):
+        pass
+
+    @property
+    def title(self):
+        return "Index"
+
+
 @app.get("/index")
 async def get_github_index(request):
     repo = get_repo()
@@ -121,13 +145,19 @@ async def get_github_index(request):
     footer = get_static_file(STATIC_FOOTER)
     bottommatter = get_static_file(STATIC_BOTTOMMATTER)
 
+    meta = IndexMeta()
+
+    j = jinja2.Environment()
+    t = j.from_string(topmatter)
+    topmatter = t.render(repo=repo, meta=meta)
+
     j = jinja2.Environment()
     t = j.from_string(header)
-    header = t.render(repo=repo)
+    header = t.render(repo=repo, meta=meta)
 
     j = jinja2.Environment()
     t = j.from_string(footer)
-    footer = t.render(repo=repo)
+    footer = t.render(repo=repo, meta=meta)
 
     html = f"""
 {topmatter}
