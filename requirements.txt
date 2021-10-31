@@ -1,5 +1,7 @@
+aiopg
 PyGithub
 sanic
 jinja2
 aiohttp
 pyyaml
+uvloop

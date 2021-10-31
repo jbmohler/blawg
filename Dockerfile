@@ -11,4 +11,4 @@ RUN pip install -r requirements.txt
 COPY src/ src
 RUN ls -la src
 
-CMD python src/core.py
+CMD python -m sanic src.app --port=1337 --host=0.0.0.0 --debug

@@ -1,0 +1,14 @@
+services:
+    web:
+        build: .
+        ports:
+            - "1337:1337"
+        environment:
+            - GITHUB_USER=jbmohler
+            - GITHUB_BLOG_REPO=testblog
+            - GITHUB_BLOG_DIR=fred
+            - DB_CONNECTION=postgresql://blawguser:abc123@db/blawg
+    db:
+        build: postgresql
+        environment:
+            - POSTGRES_PASSWORD=abc123

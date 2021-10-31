@@ -9,6 +9,7 @@ import yaml
 import sanic
 import github
 import jinja2
+from sanic.log import logger
 
 app = sanic.Sanic("blawg like a pro")
 
@@ -130,6 +131,9 @@ class IndexMeta:
 @app.get("/index")
 async def get_github_index(request):
     repo = get_repo()
+
+    async with app.dbconn() as conn:
+        posts = await postgresql.sql_rows(conn, "select * from posts")
 
     cfile = repo.get_contents(f"{GITHUB_BLOG_DIR}")
 
@@ -258,11 +262,24 @@ async def get_github_blog_page(request, blogentry):
 
     return sanic.html(html)
 
+from . import postgresql
 
 @app.listener("before_server_start")
 async def setup_executor(app, loop):
     loop.set_default_executor(concurrent.futures.ThreadPoolExecutor())
 
+    # give the DB some time to init
+    await asyncio.sleep(5)
+
+    app.pool = await postgresql.create_pool(os.getenv("DB_CONNECTION"))
+    app.__class__.dbconn = postgresql.dbconn
+
+    async with app.dbconn() as conn:
+        sver = await postgresql.sql_1row(conn, "select version()")
+
+        logger.info(f"Running with DB version {sver}")
+
 
 if __name__ == "__main__":
+    # NOTE: Sanic CLI is used in Dockerfile; thus never runs as __main__.
     app.run(host="0.0.0.0", port=1337, access_log=False, debug=True, auto_reload=True)
