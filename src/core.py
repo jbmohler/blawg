@@ -1,4 +1,5 @@
 import os
+import time
 import tempfile
 import functools
 import subprocess
@@ -25,11 +26,68 @@ STATIC_HEADER = "header"
 STATIC_FOOTER = "footer"
 STATIC_BOTTOMMATTER = "bottommatter"
 
+# Only check for metadata updates (i.e. new commits) once every
+# META_UPDATE_INTERVAL
+META_UPDATE_INTERVAL = 60  # seconds
+LAST_META_UPDATE = None
+
 
 @functools.lru_cache()
 def get_repo():
     g = github.Github()
     return g.get_repo(f"{GITHUB_USER}/{GITHUB_BLOG_REPO}")
+
+
+async def _meta_update_inner(repo, conn):
+    latest = await postgresql.sql_1row(conn, "select latest_sha from gh_settings")
+
+    kwargs = {}
+    if latest:
+        kwargs['sha'] = latest
+    commits = repo.get_commits(**kwargs)
+
+    post_files = {}
+
+    static_clear = None
+    last_sha = None
+
+    for c in commits:
+        last_sha = c.sha
+
+        for f in c.files:
+            if f.filename.startswith(GITHUB_BLOG_DIR):
+                post_files[f.filename] = c
+            elif f.filename.startswith(GITHUB_STATIC_DIR):
+                static_clear = c.sha
+
+    if static_clear:
+        logger.info(f"Clearing static cache due changes in commit {static_clear}")
+        get_static_file.cache_clear()
+
+    if last_sha:
+        await postgresql.sql_void(
+            conn, "update gh_settings set latest_sha=%(sha)s", {"sha": last_sha}
+        )
+
+    # def repr(c):
+    #    lines = [f"{c.author} {c.commit.author.date} {c.sha} {c.commit.message}\n"]
+    #    for f in c.files:
+    #        lines.append(f"\t{f.filename} +{f.additions} -{f.deletions}\n")
+    #    return "".join(lines)
+    #
+    # return sanic.text("".join([repr(c) for c in commits]))
+
+
+async def meta_update(repo):
+    global LAST_META_UPDATE, META_UPDATE_INTERVAL
+
+    tm = time.monotonic()
+    if LAST_META_UPDATE is None or tm - LAST_META_UPDATE > META_UPDATE_INTERVAL:
+        # update from github
+        async with app.dbconn() as conn:
+            await _meta_update_inner(repo, conn)
+
+        LAST_META_UPDATE = tm
 
 
 @functools.lru_cache(maxsize=8)
@@ -132,6 +190,8 @@ class IndexMeta:
 async def get_github_index(request):
     repo = get_repo()
 
+    await meta_update(repo)
+
     async with app.dbconn() as conn:
         posts = await postgresql.sql_rows(conn, "select * from posts")
 
@@ -205,6 +265,8 @@ class PageMeta:
 async def get_github_blog_page(request, blogentry):
     repo = get_repo()
 
+    await meta_update(repo)
+
     cfile = repo.get_contents(f"{GITHUB_BLOG_DIR}/{blogentry}")
     raw = base64.b64decode(cfile.content)
 
@@ -262,7 +324,9 @@ async def get_github_blog_page(request, blogentry):
 
     return sanic.html(html)
 
+
 from . import postgresql
+
 
 @app.listener("before_server_start")
 async def setup_executor(app, loop):

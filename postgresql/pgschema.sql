@@ -8,7 +8,7 @@ insert into gh_settings (id)
 values (1);
 
 create table posts (
-	id serial,
+	id serial primary key,
 	gh_path text,
 	post_title text,
 	post_author text,

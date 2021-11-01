@@ -1,9 +1,9 @@
 import contextlib
+import time
 import random
 import urllib.parse
 import aiopg
 import psycopg2.extras
-import psycopg2.extensions as psyext
 
 
 async def create_connection(dburl):
@@ -40,7 +40,6 @@ async def create_pool(dburl):
     return await aiopg.create_pool(**kwargs, minsize=3, maxsize=6)
 
 
-
 # to become a method of app
 @contextlib.asynccontextmanager
 async def dbconn(self):
@@ -58,15 +57,16 @@ async def dbconn(self):
                 time.sleep(random.random() * 0.5 + 0.1)
             else:
                 raise
-    #ctoken = getattr(request, "cancel_token", None)
+    # ctoken = getattr(request, "cancel_token", None)
     try:
-        #if ctoken != None:
+        # if ctoken != None:
         #    self.register_connection(ctoken, conn)
         yield conn
     finally:
-        #if ctoken != None:
+        # if ctoken != None:
         #    self.unregister_connection(ctoken, conn)
         await self.pool.release(conn)
+
 
 from .sqlread import *
 from .sqlwrite import *

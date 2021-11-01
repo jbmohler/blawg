@@ -48,7 +48,7 @@ async def sql_1row(conn, select, params=None):
     return row[0] if len(row) == 1 else row
 
 
-def sql_1object(conn, select, params=None):
+async def sql_1object(conn, select, params=None):
     """
     Similarly to :meth:`sql_1row` this function executes an SQL select that is
     expected to return exactly one row.   It returns an object whose
@@ -59,9 +59,9 @@ def sql_1object(conn, select, params=None):
     if params == None:
         params = []
 
-    with conn.cursor(cursor_factory=extras.NamedTupleCursor) as cursor:
-        cursor.execute(select, params)
-        results = list(cursor.fetchall())
+    async with conn.cursor(cursor_factory=extras.NamedTupleCursor) as cursor:
+        await cursor.execute(select, params)
+        results = await list(cursor.fetchall())
         if len(results) == 0:
             row = None
         elif len(results) == 1:
@@ -72,7 +72,7 @@ def sql_1object(conn, select, params=None):
     return row
 
 
-def sql_void(conn, sql, params=None):
+async def sql_void(conn, sql, params=None):
     """
     Execute an SQL statement.  You must call `conn.commit()` after this
     function for the change to be committed.
@@ -81,8 +81,8 @@ def sql_void(conn, sql, params=None):
     # interpolation.   This may or may not be desirable in general.
     if params == None:
         params = []
-    with conn.cursor() as cursor:
-        cursor.execute(sql, params)
+    async with conn.cursor() as cursor:
+        await cursor.execute(sql, params)
 
 
 def sql_tab2(conn, stmt, mogrify_params=None, column_map=None):

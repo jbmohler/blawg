@@ -18,8 +18,8 @@ where
 
 COL_TYPE_SELECT = """
 select tables.table_name, columns.column_name, columns.is_nullable, 
-	columns.data_type, columns.character_maximum_length, 
-	columns.numeric_precision, columns.numeric_precision_radix, columns.numeric_scale
+    columns.data_type, columns.character_maximum_length, 
+    columns.numeric_precision, columns.numeric_precision_radix, columns.numeric_scale
 from information_schema.tables
 join information_schema.columns on columns.table_name=tables.table_name
 where tables.table_schema=%(sname)s and tables.table_name=%(tname)s and tables.table_type='BASE TABLE'"""
@@ -55,7 +55,9 @@ class WriteChunk:
 
         tosave = set(table.DataRow.__slots__)
 
-        cols = sqlread.sql_rows(self.conn, COL_TYPE_SELECT, {"sname": sx, "tname": tx})
+        cols = await sqlread.sql_rows(
+            self.conn, COL_TYPE_SELECT, {"sname": sx, "tname": tx}
+        )
         coltypes = {}
         for row in cols:
             if row.column_name in tosave:
@@ -82,22 +84,24 @@ class WriteChunk:
                     pass
 
         mog = TableSaveMogrification()
-        mog.primary_key = sqlread.sql_1row(
+        mog.primary_key = await sqlread.sql_1row(
             self.conn, PRIM_KEY_SELECT, {"sname": sx, "tname": tx}
         )
         mog.table = tname
         mog.column_types = coltypes
-        mog.persist(self.conn, table)
+        await mog.persist(self.conn, table)
 
     async def delete_rows(self, tname, table):
         sx, tx = WriteChunk._split_table_name(tname)
 
-        keys = sqlread.sql_1row(self.conn, PRIM_KEY_SELECT, {"sname": sx, "tname": tx})
+        keys = await sqlread.sql_1row(
+            self.conn, PRIM_KEY_SELECT, {"sname": sx, "tname": tx}
+        )
         if list(sorted(keys)) != list(sorted(table.DataRow.__slots__)):
             raise RuntimeError("primary key must be exactly represented")
 
         mog = TableSaveMogrification()
-        values = mog.as_values(self.conn, table, table.DataRow.__slots__)
+        values = await mog.as_values(self.conn, table, table.DataRow.__slots__)
         c = ", ".join(table.DataRow.__slots__)
 
         delete_sql = """delete from {t} where ({columns}) in ({v})"""
@@ -110,7 +114,7 @@ class WriteChunk:
         insert_sql = """insert into {t} ({columns}) {v}"""
 
         mog = TableSaveMogrification()
-        values = mog.as_values(self.conn, table, table.DataRow.__slots__)
+        values = await mog.as_values(self.conn, table, table.DataRow.__slots__)
         c = ", ".join(table.DataRow.__slots__)
 
         async with self.conn.cursor() as cursor:
@@ -162,7 +166,7 @@ class TableSaveMogrification:
         self.primary_key = None
         self.column_types = None
 
-    def as_values(self, conn, table, columns):
+    async def as_values(self, conn, table, columns):
         result_template = """\
 values/*REPRESENTED*/
 """
@@ -174,7 +178,7 @@ values/*REPRESENTED*/
 
         return result_template.replace("/*REPRESENTED*/", mogrifications)
 
-    def persist(self, conn, table):
+    async def persist(self, conn, table):
         collist = table.DataRow.__slots__
 
         if isinstance(self.primary_key, str):
