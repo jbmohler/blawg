@@ -64,7 +64,11 @@ async def _meta_update_inner(repo, conn):
     static_clear = None
     last_sha = None
 
-    posts = mecolm.simple_table(["gh_path", "post_title", "post_author", "post_date"])
+    async with app.dbconn() as conn:
+        prior = await postgresql.sql_rows(conn, "select * from posts")
+        prior = {r.gh_path: r for r in prior}
+
+    posts = mecolm.simple_table(["id", "gh_path", "post_title", "post_author", "post_date"])
 
     for c in asc_commits:
         last_sha = c.sha
@@ -90,6 +94,7 @@ async def _meta_update_inner(repo, conn):
                 meta = PageMeta(metaseg, cfile)
 
                 with posts.adding_row() as r2:
+                    r2.id = prior[f.filename].id if f.filename in prior else None
                     r2.gh_path = f.filename
                     r2.post_title = meta.title
                     r2.post_author = meta.author or c.commit.author.name
