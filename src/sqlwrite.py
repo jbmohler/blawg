@@ -121,8 +121,8 @@ class WriteChunk:
             await cursor.execute(insert_sql.format(t=tname, columns=c, v=values))
 
 
-@contextlib.contextmanager
-def writeblock(conn):
+@contextlib.asynccontextmanager
+async def writeblock(conn):
     yield WriteChunk(conn)
 
 

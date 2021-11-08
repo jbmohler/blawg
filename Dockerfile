@@ -6,7 +6,9 @@ RUN apt-get update && \
 
 WORKDIR /install
 COPY requirements.txt .
+COPY --from=mecolm-wheel /build/mecolm/mecolm-0.1-py3-none-any.whl .
 RUN pip install -r requirements.txt
+RUN pip install mecolm-0.1-py3-none-any.whl
 
 COPY src/ src
 RUN ls -la src

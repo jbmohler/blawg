@@ -1,0 +1,32 @@
+# docker build -t mecolm-wheel --build-arg SSH_PRIVATE_KEY="$(cat ~/.ssh/id_rsa)" --build-arg CACHE_BUST=$(python -c "import uuid; print(uuid.uuid1().hex)")
+
+FROM python:3.10
+RUN apt-get update
+RUN apt-get install -y git
+
+# NOTE:  for docker-build, we pull from git, but the expectation is that the
+# git clone directories each get over mounted in the docker run.
+
+# add credentials on build
+ARG SSH_PRIVATE_KEY
+RUN mkdir /root/.ssh/
+RUN echo "${SSH_PRIVATE_KEY}" > /root/.ssh/id_rsa
+RUN chmod 600 /root/.ssh/id_rsa
+
+# make sure your domain is accepted
+RUN touch /root/.ssh/known_hosts
+RUN ssh-keyscan github.com >> /root/.ssh/known_hosts
+
+# cache bust the git clone
+ARG CACHE_BUST
+RUN echo ${CACHE_BUST}
+
+WORKDIR /build
+RUN git clone --depth 1 git@github.com:jbmohler/mecolm.git && \
+        rm -rf mecolm/.git
+WORKDIR /build/mecolm
+
+RUN pip install wheel
+RUN pip wheel .
+
+

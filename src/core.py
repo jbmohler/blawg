@@ -11,15 +11,16 @@ import sanic
 import github
 import jinja2
 from sanic.log import logger
+import mecolm
 
 app = sanic.Sanic("blawg like a pro")
 
 GITHUB_USER = os.getenv("GITHUB_USER")
 GITHUB_BLOG_REPO = os.getenv("GITHUB_BLOG_REPO")
-
+GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "main")
 GITHUB_BLOG_DIR = os.getenv("GITHUB_BLOG_DIR")
 
-GITHUB_STATIC_DIR = "/static"
+GITHUB_STATIC_DIR = "static"
 
 STATIC_TOPMATTER = "topmatter"
 STATIC_HEADER = "header"
@@ -41,23 +42,61 @@ def get_repo():
 async def _meta_update_inner(repo, conn):
     latest = await postgresql.sql_1row(conn, "select latest_sha from gh_settings")
 
-    kwargs = {}
-    if latest:
-        kwargs['sha'] = latest
+    kwargs = {"sha": GITHUB_BRANCH}
     commits = repo.get_commits(**kwargs)
+
+    # TODO:  need a much cleaner way to get a commit order list of commits
+    # between latest and GITHUB_BRANCH
+    if latest:
+        asc_commits = 0
+        for c in commits:
+            if asc_commits:
+                asc_commits.insert(0, c)
+            else:
+                asc_commits = [c]
+            if c.sha == latest:
+                break
+    else:
+        asc_commits = reversed(commits)
 
     post_files = {}
 
     static_clear = None
     last_sha = None
 
-    for c in commits:
+    posts = mecolm.simple_table(["gh_path", "post_title", "post_author", "post_date"])
+
+    for c in asc_commits:
         last_sha = c.sha
+        logger.info(f"Reviewing commit {c.sha} for relevant changes")
 
         for f in c.files:
             if f.filename.startswith(GITHUB_BLOG_DIR):
+                logger.info(f"\tneed to update metadata for post in file {f.filename}")
                 post_files[f.filename] = c
+
+                cfile = repo.get_contents(f.filename)
+                raw = base64.b64decode(cfile.content)
+
+                content = raw.decode("utf8")
+                metaseg = None
+                if content.startswith("---"):
+                    splits = content.split("---", 2)
+                    if len(splits) < 3:
+                        metaseg, content = None, content
+                    else:
+                        _, metaseg, content = splits
+
+                meta = PageMeta(metaseg, cfile)
+
+                with posts.adding_row() as r2:
+                    r2.gh_path = f.filename
+                    r2.post_title = meta.title
+                    r2.post_author = meta.author or c.commit.author.name
+                    r2.post_date = meta.post_date or c.commit.author.date
+
             elif f.filename.startswith(GITHUB_STATIC_DIR):
+                logger.info(f"\tmarking cache to clear due to file {f.filename}")
                 static_clear = c.sha
 
     if static_clear:
@@ -68,6 +107,9 @@ async def _meta_update_inner(repo, conn):
         await postgresql.sql_void(
             conn, "update gh_settings set latest_sha=%(sha)s", {"sha": last_sha}
         )
+
+        async with postgresql.writeblock(conn) as w:
+            await w.upsert_rows("posts", posts)
 
     # def repr(c):
     #    lines = [f"{c.author} {c.commit.author.date} {c.sha} {c.commit.message}\n"]
@@ -259,6 +301,14 @@ class PageMeta:
     @property
     def title(self):
         return self._meta.get("title", self._cfile.name)
+
+    @property
+    def author(self):
+        return self._meta.get("author", None)
+
+    @property
+    def post_date(self):
+        return self._meta.get("date", None)
 
 
 @app.get("/page/<blogentry:path>")
