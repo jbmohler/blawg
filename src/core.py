@@ -4,16 +4,19 @@ import tempfile
 import functools
 import subprocess
 import asyncio
-import concurrent.futures
 import base64
 import yaml
 import sanic
 import github
 import jinja2
 from sanic.log import logger
+from . import yenotasync
+from . import postgresql
 import mecolm
 
-app = sanic.Sanic("blawg like a pro")
+app = yenotasync.Yenot2("blawg like a pro")
+
+app.listener("before_server_start")(yenotasync.setup_executor)
 
 GITHUB_USER = os.getenv("GITHUB_USER")
 GITHUB_BLOG_REPO = os.getenv("GITHUB_BLOG_REPO")
@@ -154,18 +157,6 @@ def get_static_file(static):
         return ""
 
 
-def get_public_basepath(request):
-    if "x-original-uri" in request.headers:
-        mypath = request.path.lstrip("/")
-        public = request.headers["x-original-uri"]
-        if len(mypath) and public.endswith(mypath):
-            public = public[: -len(mypath)]
-        assert public.endswith("/")
-        return public
-    else:
-        return "/"
-
-
 @app.get("/pathdest")
 async def pathdest(request):
     await asyncio.sleep(0.1)
@@ -177,15 +168,13 @@ async def slashpathtest(request):
     kvs = [f"{k}={v}" for k, v in request.headers.items()]
     kvs.append("")
     kvs.append(f"path={request.path}")
-    kvs.append(f"public={get_public_basepath(request)}")
+    kvs.append(f"public={app.get_public_basepath(request)}")
     kvs.append("")
     headers = "<br />".join(kvs)
 
-    headers += (
-        f"<br />path={request.path}<br />public={get_public_basepath(request)}<br />"
-    )
+    headers += f"<br />path={request.path}<br />public={app.get_public_basepath(request)}<br />"
 
-    dest = f"{get_public_basepath(request)}pathdest"
+    dest = f"{app.get_public_basepath(request)}pathdest"
 
     return sanic.html(
         f"""
@@ -247,7 +236,7 @@ async def get_github_index(request):
 
     def repr(c):
         hyper = c.gh_path.replace(GITHUB_BLOG_DIR, "").strip("/")
-        base = get_public_basepath(request)
+        base = app.get_public_basepath(request)
         return f"<a href='{base}page/{hyper}'>{c.post_title}</a> ({c.post_author} \u00b7 {c.post_date})<br />"
 
     output = "\n".join([repr(c) for c in posts])
@@ -379,25 +368,6 @@ async def get_github_blog_page(request, blogentry):
 {bottommatter}"""
 
     return sanic.html(html)
-
-
-from . import postgresql
-
-
-@app.listener("before_server_start")
-async def setup_executor(app, loop):
-    loop.set_default_executor(concurrent.futures.ThreadPoolExecutor())
-
-    # give the DB some time to init
-    await asyncio.sleep(5)
-
-    app.pool = await postgresql.create_pool(os.getenv("DB_CONNECTION"))
-    app.__class__.dbconn = postgresql.dbconn
-
-    async with app.dbconn() as conn:
-        sver = await postgresql.sql_1row(conn, "select version()")
-
-        logger.info(f"Running with DB version {sver}")
 
 
 if __name__ == "__main__":
