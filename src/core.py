@@ -48,16 +48,16 @@ async def _meta_update_inner(repo, conn):
     # TODO:  need a much cleaner way to get a commit order list of commits
     # between latest and GITHUB_BRANCH
     if latest:
-        asc_commits = 0
+        asc_commits = []
         for c in commits:
+            if c.sha == latest:
+                break
             if asc_commits:
                 asc_commits.insert(0, c)
             else:
                 asc_commits = [c]
-            if c.sha == latest:
-                break
     else:
-        asc_commits = reversed(commits)
+        asc_commits = reversed(list(commits))
 
     post_files = {}
 
@@ -68,7 +68,9 @@ async def _meta_update_inner(repo, conn):
         prior = await postgresql.sql_rows(conn, "select * from posts")
         prior = {r.gh_path: r for r in prior}
 
-    posts = mecolm.simple_table(["id", "gh_path", "post_title", "post_author", "post_date"])
+    posts = mecolm.simple_table(
+        ["id", "gh_path", "post_title", "post_author", "post_date"]
+    )
 
     for c in asc_commits:
         last_sha = c.sha
@@ -236,20 +238,19 @@ class IndexMeta:
 @app.get("/index")
 async def get_github_index(request):
     repo = get_repo()
-
     await meta_update(repo)
 
     async with app.dbconn() as conn:
-        posts = await postgresql.sql_rows(conn, "select * from posts")
-
-    cfile = repo.get_contents(f"{GITHUB_BLOG_DIR}")
+        posts = await postgresql.sql_rows(
+            conn, "select * from posts order by post_date desc"
+        )
 
     def repr(c):
-        hyper = c.path.replace(GITHUB_BLOG_DIR, "").strip("/")
+        hyper = c.gh_path.replace(GITHUB_BLOG_DIR, "").strip("/")
         base = get_public_basepath(request)
-        return f"<a href='{base}page/{hyper}'>{c.name}</a><br />"
+        return f"<a href='{base}page/{hyper}'>{c.post_title}</a> ({c.post_author} \u00b7 {c.post_date})<br />"
 
-    output = "\n".join([repr(c) for c in cfile])
+    output = "\n".join([repr(c) for c in posts])
 
     topmatter = get_static_file(STATIC_TOPMATTER)
     header = get_static_file(STATIC_HEADER)
